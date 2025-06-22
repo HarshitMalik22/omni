@@ -1,80 +1,45 @@
-# 🧠 Project Instructions: Voice Agent for Real-Time Auction (OmniDimension Only)
+# OmniAuction Prototype — Instructions
 
-## ✅ Objective
+## Quick Start
 
-Build a voice agent using **OmniDimension** that allows a user to:
+### 1. Install Requirements
+```bash
+pip install streamlit
+```
 
-1. Participate in a real-time auction using voice
-2. Listen to product details, time left, and current bid
-3. Place a bid by voice if the amount is higher
-4. Get feedback through voice responses
+### 2. Run the Command-Line Auction Agent
+```bash
+python omni/auction_agent.py
+```
 
-All functionality must be self-contained within **OmniDimension** using its built-in memory, tools, and capabilities — **no external APIs or services**.
+#### Example CLI Commands
+- `list` — Show all auction items
+- `info iphone` — Show info for a product (e.g., iPhone)
+- `bid 1200 on iphone` — Place a bid
+- `help` — Show available commands
+- `exit` — Quit the program
 
----
+### 3. Run the Streamlit Dashboard
+```bash
+streamlit run omni/auction_dashboard.py
+```
+- Select a product from the dropdown at the top.
+- View product details and recent bidding history.
+- Enter your name and bid amount, then click "Place Bid".
+- Success or error messages will appear below the bid form.
 
-## 🧱 Data Model (Store In Memory or OmniDimension Table)
+## Troubleshooting
+- **Bids not updating?**
+  - Make sure you are using the latest Streamlit version (`pip install --upgrade streamlit`).
+  - The dashboard uses session state to persist auction data during your session.
+- **Messages not showing after bid?**
+  - Messages are stored in session state and shown after rerun. If you don't see them, check your Streamlit version and browser refresh.
 
-Each product must include:
-- `id`
-- `name`
-- `description`
-- `current_highest_bid`
-- `auction_end_time` (simulate countdown)
-- `bidding_history` (list of bids with user, amount, timestamp)
+## Demo Tips
+- Show the CLI and dashboard side by side for comparison.
+- Demonstrate placing a bid and seeing the update in real time.
+- Highlight the in-memory nature (data resets on restart).
+- Mention that the final product will have persistent storage, real-time updates, and a more advanced UI/UX.
 
----
-
-## 🗣️ Voice Agent Requirements
-
-### The voice agent must:
-1. Welcome the user
-2. List available auction items by voice
-3. Allow queries like:
-   - “What’s the current bid on the iPhone?”
-   - “Tell me about the laptop”
-4. Understand bid commands:
-   - “Place a bid of 4000 on iPhone”
-   - “Bid 6000 for the MacBook”
-5. Validate:
-   - Auction is still running
-   - Bid is higher than current
-6. Store bid in memory
-7. Reply with confirmation or failure by voice
-
----
-
-## 💾 Internal State
-
-Use OmniDimension’s internal data structures to simulate:
-- Product catalog (array or table)
-- Current auction timers (simplified or countdown-based)
-- Bidding history tracking
-
-No external file storage, no database, no API — everything should be **in-memory within OmniDimension**.
-
----
-
-## 🧪 Voice Testing (Simulated)
-
-If voice is not available, simulate the interaction using:
-- Text input/output
-- Manual triggers or test flows
-
----
-
-## ⚠️ Rules for Windsurf
-
-- Do not use external APIs, servers, or databases
-- Do not create frontend or dashboard
-- All logic, data, and interaction must remain inside OmniDimension
-- Stick exactly to what’s written here — no additional features or UI
-
----
-
-## ✅ Completion Checklist
-
-- [ ] Voice agent runs in OmniDimension only
-- [ ] Product list and bids are handled internally
-- [ ] User can hear product info and place bids
-- [ ] All bid logic and history are stored in memory
+## Prototype Reminder
+This is a prototype for demonstration and ideation. The final version will look and function very differently, with possible web/mobile/voice integration, persistent storage, and more advanced features.
