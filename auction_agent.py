@@ -53,6 +53,27 @@ class AuctionAgent:
                 description="M2 Max chip with 12-core CPU and 38-core GPU",
                 current_highest_bid=2000.0,
                 auction_end_time=datetime.now() + timedelta(minutes=30)
+            ),
+            "airpods": Product(
+                id="3",
+                name="AirPods Pro",
+                description="Wireless earbuds with active noise cancellation",
+                current_highest_bid=500.0,
+                auction_end_time=datetime.now() + timedelta(minutes=20)
+            ),
+            "google_pixel_7": Product(
+                id="4",
+                name="Google Pixel 7",
+                description="Latest Google Pixel with 50MP camera and 120Hz display",
+                current_highest_bid=1500.0,
+                auction_end_time=datetime.now() + timedelta(minutes=10)
+            ),
+            "RTX 5090": Product(
+                id="5",
+                name="RTX 5090",
+                description="Latest NVIDIA RTX 5090 with 24GB GDDR6X memory",
+                current_highest_bid=3000.0,
+                auction_end_time=datetime.now() + timedelta(minutes=10)
             )
         }
     
