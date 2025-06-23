@@ -11,6 +11,30 @@ from streamlit_autorefresh import st_autorefresh
 import threading
 from queue import Queue
 import json
+import os
+from omnidimension import Client
+
+# Initialize OmniDimension client
+try:
+    OMNIDIM_API_KEY = st.secrets.get('OMNIDIM_API_KEY', os.environ.get('OMNIDIM_API_KEY'))
+    if OMNIDIM_API_KEY:
+        print("\n=== INITIALIZING OMNIDIMENSION CLIENT ===")
+        print(f"Using API Key: {OMNIDIM_API_KEY[:5]}...{OMNIDIM_API_KEY[-5:]}")
+        
+        # Initialize client with just the API key
+        omnidim_client = Client(OMNIDIM_API_KEY)
+        
+        OMNIDIM_AGENT_ID = int(st.secrets.get('OMNIDIM_AGENT_ID', os.environ.get('OMNIDIM_AGENT_ID', '1')))
+        print(f"Using Agent ID: {OMNIDIM_AGENT_ID} (type: {type(OMNIDIM_AGENT_ID).__name__})")
+        print("OmniDimension client initialized successfully")
+    else:
+        st.warning("OmniDimension API key not found. Voice features will be disabled.")
+        omnidim_client = None
+except Exception as e:
+    error_msg = f"Failed to initialize OmniDimension client: {str(e)}"
+    st.error(error_msg)
+    print(f"!!! ERROR: {error_msg}")
+    omnidim_client = None
 
 # Global queue for WebSocket messages
 ws_messages = Queue()
@@ -30,7 +54,7 @@ class WebSocketClient:
                 async with websockets.connect(self.uri, ping_interval=None) as ws:
                     self.ws = ws
                     self.connected = True
-                    st.experimental_rerun()  # Rerun to update connection status
+                    st.rerun()  # Rerun to update connection status
                     
                     async for message in ws:
                         if self.should_stop:
@@ -38,14 +62,14 @@ class WebSocketClient:
                         try:
                             data = json.loads(message)
                             ws_messages.put(data)
-                            st.experimental_rerun()  # Rerun to process new message
+                            st.rerun()  # Rerun to process new message
                         except json.JSONDecodeError:
                             print(f"Failed to parse message: {message}")
                             
             except Exception as e:
                 print(f"WebSocket error: {e}")
                 self.connected = False
-                st.experimental_rerun()  # Rerun to update connection status
+                st.rerun()  # Rerun to update connection status
                 await asyncio.sleep(5)  # Reconnect after 5 seconds
 
     def start(self):
@@ -121,9 +145,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Auto-refresh every 5 seconds
-st_autorefresh(interval=5000, key='data_refresh')
-
 # Helper functions
 def fetch_products():
     try:
@@ -143,16 +164,19 @@ def fetch_product_details(product_id):
         st.error(f"Error fetching product details: {str(e)}")
         return None
 
-def place_bid(product_id, user, amount):
+def place_bid(product_id, user, amount, voice_call=False):
     try:
         response = requests.post(
             f"{API_BASE_URL}/bids",
-            json={"product_id": product_id, "user": user, "amount": amount}
+            json={"product_id": product_id, "user": user, "amount": amount, "voice_call": voice_call}
         )
         response.raise_for_status()
         
         # Show a success toast
-        st.toast(f"✅ Bid of ${amount} placed successfully!")
+        toast_msg = f"✅ Bid of ${amount} placed successfully!"
+        if voice_call:
+            toast_msg += " 🎙️"
+        st.toast(toast_msg)
         
         return True, response.json()["message"]
     except requests.exceptions.HTTPError as e:
@@ -162,6 +186,119 @@ def place_bid(product_id, user, amount):
     except Exception as e:
         error_msg = str(e)
         st.toast(f"❌ {error_msg}", icon="❌")
+        return False, error_msg
+
+def make_voice_call(phone_number, product_name, current_bid):
+    """Initiate a voice call using OmniDimension Call API
+    
+    Args:
+        phone_number (str): Phone number to call (will be formatted with country code if needed)
+        product_name (str): Name of the product for the call context
+        current_bid (float): Current bid amount for the product
+        
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    if not omnidim_client:
+        error_msg = "OmniDimension client not initialized. Please check your API key."
+        st.error(error_msg)
+        return False, error_msg
+    
+    try:
+        # Clean and validate phone number
+        phone_number = str(phone_number).strip().replace(" ", "")  # Remove any spaces
+        if not phone_number:
+            return False, "Phone number cannot be empty"
+            
+        # Ensure country code is present (default to +91 for India if not provided)
+        if not phone_number.startswith('+'):
+            phone_number = f"+91{phone_number}"
+        
+        # Prepare call context
+        call_context = {
+            "product_name": str(product_name) if product_name else "Unknown Product",
+            "current_bid": str(current_bid) if current_bid is not None else "0",
+            "action": "place_bid"
+        }
+        
+        # Make the API call
+        try:
+            if not hasattr(omnidim_client, 'call') or not hasattr(omnidim_client.call, 'dispatch_call'):
+                return False, "OmniDimension client is not properly configured for making calls"
+            
+            # Log the request details for debugging
+            print("\n=== MAKING API REQUEST ===")
+            print(f"Agent ID: {OMNIDIM_AGENT_ID}")
+            print(f"To Number: {phone_number}")
+            print(f"Call Context: {json.dumps(call_context, indent=2)}")
+            
+            # Make the API call with positional arguments as expected by the API
+            response = omnidim_client.call.dispatch_call(
+                OMNIDIM_AGENT_ID,  # agent_id as first positional argument
+                phone_number,      # to_number as second positional argument
+                call_context       # call_context as third positional argument
+            )
+            
+            print("\n=== API RESPONSE ===")
+            print(f"Response type: {type(response)}")
+            print(f"Response content: {response}")
+            
+            # Handle response (could be dict or response object)
+            if isinstance(response, dict):
+                if response.get('success', False):
+                    success_msg = "✅ Voice call initiated successfully! Please wait for the call."
+                    st.success(success_msg)
+                    return True, success_msg
+                else:
+                    error_msg = response.get('message', 'Failed to initiate call - no error details')
+            elif hasattr(response, 'json'):
+                response_data = response.json()
+                if response.status_code == 200 or response_data.get('success', False):
+                    success_msg = "✅ Voice call initiated successfully! Please wait for the call."
+                    st.success(success_msg)
+                    return True, success_msg
+                else:
+                    error_msg = response_data.get('message', 'Failed to initiate call - no error details')
+            else:
+                error_msg = f"Unexpected response format: {response}"
+            
+            st.error(f"❌ Call failed: {error_msg}")
+            return False, error_msg
+            
+        except Exception as e:
+            print("\n!!! API CALL FAILED !!!")
+            print(f"Exception type: {type(e).__name__}")
+            print(f"Error: {str(e)}")
+            
+            error_msg = f"API call failed: {str(e)}"
+            
+            # Log detailed error information
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"\n=== ERROR RESPONSE DETAILS ===")
+                print(f"Status Code: {getattr(e.response, 'status_code', 'N/A')}")
+                print(f"Headers: {dict(getattr(e.response, 'headers', {}))}")
+                
+                try:
+                    if hasattr(e.response, 'text'):
+                        print(f"Response text: {e.response.text}")
+                        error_msg = f"{error_msg}\nResponse: {e.response.text}"
+                    
+                    if hasattr(e.response, 'json'):
+                        error_data = e.response.json()
+                        print(f"Response JSON: {error_data}")
+                        error_msg = error_data.get('detail', 
+                                              error_data.get('message', 
+                                                          error_msg))
+                except Exception as parse_error:
+                    print(f"Failed to parse error response: {str(parse_error)}")
+                    error_msg = f"{error_msg} (Failed to parse error details)"
+            
+            return False, error_msg
+            
+    except Exception as e:
+        error_msg = f"Error in make_voice_call: {str(e)}"
+        st.error(f"❌ {error_msg}")
+        return False, error_msg
         return False, error_msg
 
 # Process WebSocket messages
@@ -201,16 +338,18 @@ def main():
             with st.container():
                 st.markdown(f"""
                 <div class="product-card">
-                    <h3>{name}</h3>
-                    <p>{description}</p>
+                    <h3>{product.get('name', 'Unnamed Product')}</h3>
+                    <p>{product.get('description', 'No description available')}</p>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 1.2em; font-weight: bold; color: #4CAF50;">
-                            ${current_highest_bid:,.2f}
+                            ${product.get('current_price', 0):,.2f}
                         </span>
-                        <span style="color: #666;">{time_remaining}</span>
+                        <span style="color: #666;">
+                            {product.get('time_remaining', 'N/A')}
+                        </span>
                     </div>
                     <div style="margin-top: 10px; color: #666; font-size: 0.9em;">
-                        {bids_count} bids
+                        {len(product.get('bids', []))} bids
                     </div>
                 </div>
                 """.format(
@@ -239,6 +378,35 @@ def main():
             key="product_selector"
         )
         
+        # Voice call section
+        if omnidim_client:
+            with st.expander("🔊 Voice Bid Assistant", expanded=False):
+                st.write("Place a bid using our voice assistant")
+                phone_number = st.text_input("Your Phone Number (with country code)", 
+                                           placeholder="+1234567890",
+                                           key="phone_number")
+                
+                if st.button("📞 Call Me to Place Bid"):
+                    if not phone_number:
+                        st.error("Please enter your phone number")
+                    else:
+                        product = next((p for p in products if p.get('id') == selected_product_id), None)
+                        if product:
+                            # Get the current price or default to 0 if not available
+                            current_price = product.get('current_price', product.get('current_highest_bid', 0))
+                            product_name = product.get('name', 'this item')
+                            
+                            with st.spinner("Initiating voice call..."):
+                                success, message = make_voice_call(
+                                    phone_number,
+                                    product_name,
+                                    current_price
+                                )
+                                if success:
+                                    st.success("Voice call initiated! Please answer the call to place your bid.")
+                                else:
+                                    st.error(f"Failed to initiate call: {message}")
+        
         # Get product details
         product = fetch_product_details(selected_product_id)
         
@@ -266,15 +434,39 @@ def main():
                 )
                 submit = st.form_submit_button("🚀 Place Bid")
                 
+                # Add voice call option
+                use_voice = st.checkbox("Place bid via voice call", 
+                                      help="Get a call to confirm and place your bid")
+                
                 if submit:
                     if not user:
                         st.error("Please enter your name")
+                    elif use_voice and not st.session_state.get('phone_number'):
+                        st.error("Please enter your phone number in the Voice Bid Assistant section")
                     else:
-                        success, message = place_bid(
-                            selected_product_id,
-                            user,
-                            amount
-                        )
+                        if use_voice and omnidim_client:
+                            phone_number = st.session_state.get('phone_number')
+                            if phone_number:
+                                product = next((p for p in products if p['id'] == selected_product_id), None)
+                                if product:
+                                    product_name = product.get('name', 'this item')
+                                    with st.spinner("Initiating voice call..."):
+                                        success, message = make_voice_call(
+                                            phone_number,
+                                            product_name,
+                                            amount
+                                        )
+                                        if success:
+                                            st.success("Voice call initiated! Please answer to confirm your bid.")
+                                        else:
+                                            st.error(f"Failed to initiate call: {message}")
+                        else:
+                            success, message = place_bid(
+                                selected_product_id,
+                                user,
+                                amount,
+                                voice_call=use_voice
+                            )
                         if success:
                             st.success(message)
                             st.balloons()
