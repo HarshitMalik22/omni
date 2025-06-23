@@ -2,10 +2,72 @@ import streamlit as st
 import requests
 import json
 import time
+import asyncio
+import websockets
 from datetime import datetime
 import plotly.express as px
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
+import threading
+from queue import Queue
+import json
+
+# Global queue for WebSocket messages
+ws_messages = Queue()
+
+# WebSocket client
+class WebSocketClient:
+    def __init__(self, uri):
+        self.uri = uri
+        self.ws = None
+        self.connected = False
+        self.should_stop = False
+        self.thread = None
+
+    async def connect(self):
+        while not self.should_stop:
+            try:
+                async with websockets.connect(self.uri, ping_interval=None) as ws:
+                    self.ws = ws
+                    self.connected = True
+                    st.experimental_rerun()  # Rerun to update connection status
+                    
+                    async for message in ws:
+                        if self.should_stop:
+                            break
+                        try:
+                            data = json.loads(message)
+                            ws_messages.put(data)
+                            st.experimental_rerun()  # Rerun to process new message
+                        except json.JSONDecodeError:
+                            print(f"Failed to parse message: {message}")
+                            
+            except Exception as e:
+                print(f"WebSocket error: {e}")
+                self.connected = False
+                st.experimental_rerun()  # Rerun to update connection status
+                await asyncio.sleep(5)  # Reconnect after 5 seconds
+
+    def start(self):
+        def run():
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            asyncio.get_event_loop().run_until_complete(self.connect())
+        
+        self.thread = threading.Thread(target=run, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.should_stop = True
+        if self.ws:
+            asyncio.get_event_loop().run_until_complete(self.ws.close())
+        if self.thread:
+            self.thread.join()
+
+# Initialize WebSocket client
+ws_uri = f"ws{'s' if 'https' in st.secrets.get('SERVER_URL', '') else ''}://{st.secrets.get('SERVER_URL', 'localhost:8000').replace('http://', '').replace('https://', '')}/ws"
+if 'ws_client' not in st.session_state:
+    st.session_state.ws_client = WebSocketClient(ws_uri)
+    st.session_state.ws_client.start()
 
 # Configuration
 API_BASE_URL = "http://localhost:8000/api"
@@ -88,15 +150,38 @@ def place_bid(product_id, user, amount):
             json={"product_id": product_id, "user": user, "amount": amount}
         )
         response.raise_for_status()
+        
+        # Show a success toast
+        st.toast(f"✅ Bid of ${amount} placed successfully!")
+        
         return True, response.json()["message"]
     except requests.exceptions.HTTPError as e:
-        return False, str(e.response.json().get("detail", "An error occurred"))
+        error_msg = str(e.response.json().get("detail", "An error occurred"))
+        st.toast(f"❌ {error_msg}", icon="❌")
+        return False, error_msg
     except Exception as e:
-        return False, str(e)
+        error_msg = str(e)
+        st.toast(f"❌ {error_msg}", icon="❌")
+        return False, error_msg
+
+# Process WebSocket messages
+def process_ws_messages():
+    while not ws_messages.empty():
+        message = ws_messages.get()
+        if message.get('type') == 'bid_placed':
+            st.toast(f"🚀 New bid: ${message['amount']} on {message.get('product_id', 'an item')} by {message.get('user', 'Someone')}")
+        ws_messages.task_done()
 
 # Main App
 def main():
     st.title("🛒 OmniAuction Live Dashboard")
+    
+    # Show connection status
+    ws_status = "🟢 Connected" if hasattr(st.session_state, 'ws_client') and st.session_state.ws_client.connected else "🔴 Disconnected"
+    st.sidebar.markdown(f"### WebSocket Status: {ws_status}")
+    
+    # Process WebSocket messages
+    process_ws_messages()
     
     # Fetch products
     products = fetch_products()
@@ -196,27 +281,46 @@ def main():
                         else:
                             st.error(message)
             
-            # Bidding history
+            # Bidding history with auto-update
             st.subheader("Bidding History")
+            
+            # Create a container for the history that we can update
+            history_container = st.container()
+            
             if product['bidding_history']:
                 # Convert to DataFrame for better display
                 history_df = pd.DataFrame(product['bidding_history'])
                 history_df['timestamp'] = pd.to_datetime(history_df['timestamp'])
                 
+                # Add a visual indicator for the latest bid
+                if not history_df.empty:
+                    latest_bid = history_df.iloc[-1]
+                    st.markdown(f"""
+                    <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                        <div style="font-weight: bold; color: #1f77b4;">
+                            Latest Bid: ${latest_bid['amount']:.2f} by {latest_bid['user']}
+                        </div>
+                        <div style="font-size: 0.9em; color: #666;">
+                            {latest_bid['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 # Display as a table
-                st.dataframe(
-                    history_df[['timestamp', 'user', 'amount']].sort_values('timestamp', ascending=False),
-                    column_config={
-                        'timestamp': 'Time',
-                        'user': 'Bidder',
-                        'amount': st.column_config.NumberColumn(
-                            'Amount',
-                            format='$%.2f'
-                        )
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
+                with history_container:
+                    st.dataframe(
+                        history_df[['timestamp', 'user', 'amount']].sort_values('timestamp', ascending=False),
+                        column_config={
+                            'timestamp': 'Time',
+                            'user': 'Bidder',
+                            'amount': st.column_config.NumberColumn(
+                                'Amount',
+                                format='$%.2f'
+                            )
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
                 
                 # Show bid history chart
                 if len(history_df) > 1:
