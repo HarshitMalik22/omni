@@ -1,52 +1,148 @@
-# OmniAuction - Real-Time Auction System with Voice Agent
+# OmniAuction - Real-Time Auction System for OmniDimension
 
 ## 🚀 Overview
-OmniAuction is a comprehensive real-time auction system with voice agent capabilities. It allows users to participate in auctions, place bids, and get real-time updates through multiple interfaces including a web dashboard, REST API, and voice interface.
+
+OmniAuction is a real-time auction system designed for seamless integration with OmniDimension's no-code platform. It provides a complete set of RESTful APIs for managing auctions, products, and bids, allowing OmniDimension to handle all user interactions through its visual interface.
 
 ## ✨ Features
 
 ### Core Features
-- **Real-time Bidding**: Place and track bids in real-time
-- **Multiple Interfaces**: Web dashboard, REST API, and voice interface
-- **Product Management**: List products with descriptions, images, and bidding details
-- **Bid History**: Track all bids with timestamps and user information
-- **Time-based Auctions**: Set auction end times with countdown timers
 
-### Voice Agent Capabilities
-- **Natural Language Processing**: Understand and respond to voice commands
-- **Real-time Updates**: Get notified of new bids and auction status changes
-- **Conversational Interface**: Interactive voice-based bidding experience
-- **Multi-turn Dialog**: Handle complex conversations about products and bids
-
-### Web Dashboard
-- **Real-time Updates**: Live updates using WebSockets
-- **Interactive UI**: Modern, responsive interface with real-time charts
-- **Bid Management**: Easy bid placement and tracking
-- **Product Details**: Comprehensive product information and bidding history
+- **RESTful API**: Fully documented endpoints for all auction operations
+- **Real-time Bidding**: WebSocket support for live bid updates
+- **Product Management**: CRUD operations for auction products
+- **Bid Management**: Place and track bids with full history
+- **Auto-bidding**: Support for automatic bid management
+- **Time-based Auctions**: Configurable auction durations with countdowns
 
 ## 🛠️ Tech Stack
 
 ### Backend
+
 - **FastAPI**: High-performance web framework for building APIs
 - **WebSockets**: Real-time bidirectional communication
 - **Uvicorn**: ASGI server for running FastAPI applications
-
-### Frontend
-- **Streamlit**: For the admin dashboard
-- **Plotly**: Interactive data visualization
-- **WebSockets**: Real-time updates in the browser
-
-### Voice Interface
-- **WebSockets**: For real-time voice command processing
-- **Natural Language Processing**: For understanding user intents
+- **Pydantic**: Data validation and settings management
 
 ## 🚀 Getting Started
 
 ### Prerequisites
+
 - Python 3.8+
 - pip (Python package manager)
 
-### Installation
+### Local Development
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/yourusername/omniauction.git
+   cd omniauction
+   ```
+
+2. Create a virtual environment:
+
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Start the development server:
+
+   ```bash
+   cd api
+   uvicorn main:app --reload
+   ```
+
+The API will be available at `http://localhost:8000` with interactive documentation at `http://localhost:8000/docs`
+
+## 🌐 Deployment
+
+### Recommended Deployment Options
+
+1. **Render** (Easiest)
+   - Connect your GitHub repository
+   - Select the `api` directory as the root
+   - Set the following environment variables:
+     - `PYTHON_VERSION`: 3.9+
+     - `INSTALL_COMMAND`: pip install -r requirements.txt
+     - `START_COMMAND`: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+2. **Railway**
+   - Import your GitHub repository
+   - Select the `api` directory
+   - Use the Python template
+   - Set the start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+
+## 🔌 OmniDimension Integration
+
+### Required Environment Variables
+
+- `API_BASE_URL`: The public URL of your deployed API (e.g., `https://yourapp.onrender.com`)
+
+### API Endpoints
+
+#### List All Products
+
+- **GET** `/api/products`
+- Returns: Array of product objects with current bid information
+
+#### Get Product Details
+
+- **GET** `/api/products/{product_id}`
+- Returns: Detailed product information including bid history
+
+#### Place a Bid
+
+- **POST** `/api/bids`
+- Body: `{ "product_id": "string", "user": "string", "amount": float }`
+- Returns: Confirmation of the placed bid
+
+#### Get Bid History
+
+- **GET** `/api/products/{product_id}/bids`
+- Returns: Complete bid history for a product
+
+#### Set Auto-Bid
+
+- **POST** `/api/products/{product_id}/auto-bid`
+- Body: `{ "user": "string", "max_bid": float }`
+- Returns: Confirmation of auto-bid settings
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+2. **Run the setup script**:
+   ```bash
+   ./setup_and_run.sh
+   ```
+   This will:
+   - Create a virtual environment
+   - Install all dependencies
+   - Set up environment variables
+
+3. **Start all services**:
+   ```bash
+   ./run_all.sh
+   ```
+   This will start:
+   - FastAPI backend on http://localhost:8000
+   - Streamlit dashboard on http://localhost:8501
+
+4. **Access the services**:
+   - API Documentation: http://localhost:8000/docs
+   - Admin Dashboard: http://localhost:8501
+
+### Manual Installation
+
+If you prefer to set up manually:
 
 1. **Clone the repository**
    ```bash

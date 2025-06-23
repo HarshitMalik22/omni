@@ -1,7 +1,7 @@
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 
 @dataclass
 class Bid:
@@ -39,10 +39,6 @@ class Product:
 
 class AuctionAgent:
     def __init__(self):
-        # Store auto-bid information: {product_id: {user: max_bid}}
-        self.auto_bids: Dict[str, Dict[str, float]] = {}
-        
-        # Initialize products
         self.products: Dict[str, Product] = {
             "iphone": Product(
                 id="1",
@@ -105,46 +101,6 @@ class AuctionAgent:
             
         return product.place_bid(user, amount)
     
-    def get_product_by_id(self, product_id: str) -> Optional[Product]:
-        """Get product by ID"""
-        for product in self.products.values():
-            if product.id == product_id:
-                return product
-        return None
-        
-    def set_auto_bid(self, product_id: str, user: str, max_bid: float) -> None:
-        """Set up auto-bidding for a user on a product"""
-        if product_id not in self.auto_bids:
-            self.auto_bids[product_id] = {}
-        self.auto_bids[product_id][user] = max_bid
-        
-    def get_products_ending_soon(self, minutes: int = 5) -> List[Product]:
-        """Get products ending within the specified number of minutes"""
-        now = datetime.now()
-        return [
-            p for p in self.products.values() 
-            if 0 < (p.auction_end_time - now).total_seconds() < minutes * 60
-        ]
-        
-    def get_products_with_no_bids(self) -> List[Product]:
-        """Get products that have no bids yet"""
-        return [p for p in self.products.values() if not p.bidding_history]
-        
-    def check_and_place_auto_bids(self, product_id: str, current_bid: float) -> List[Tuple[str, float]]:
-        """Check for auto-bids that should be placed and return list of placed bids"""
-        if product_id not in self.auto_bids:
-            return []
-            
-        placed_bids = []
-        for user, max_bid in list(self.auto_bids[product_id].items()):
-            if max_bid > current_bid:
-                # Place bid just above current bid, up to user's max
-                bid_amount = min(current_bid * 1.1, max_bid)  # 10% increment or max_bid, whichever is lower
-                result = self.place_bid(product_id, user, bid_amount)
-                if result.startswith("Success"):
-                    placed_bids.append((user, bid_amount))
-        return placed_bids
-
     def _find_product(self, product_name: str) -> Optional[Product]:
         product_name = product_name.lower()
         for key, product in self.products.items():

@@ -11,9 +11,56 @@ from streamlit_autorefresh import st_autorefresh
 import threading
 from queue import Queue
 import json
+from voice_agent import VoiceAgent
+import asyncio
+import websockets
+from threading import Thread
 
 # Global queue for WebSocket messages
 ws_messages = Queue()
+
+# Initialize voice agent
+if 'voice_agent' not in st.session_state:
+    st.session_state.voice_agent = VoiceAgent(use_voice=False)
+    st.session_state.listening = False
+    st.session_state.voice_thread = None
+    st.session_state.voice_messages = Queue()
+
+def start_voice_agent():
+    """Start the voice agent in a separate thread"""
+    if not st.session_state.listening:
+        st.session_state.listening = True
+        st.session_state.voice_thread = Thread(target=run_voice_agent, daemon=True)
+        st.session_state.voice_thread.start()
+    else:
+        st.session_state.listening = False
+
+def run_voice_agent():
+    """Run the voice agent in a separate thread"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        while st.session_state.listening:
+            try:
+                command = st.session_state.voice_agent.listen()
+                if command:
+                    response = loop.run_until_complete(
+                        st.session_state.voice_agent.process_voice_command(command)
+                    )
+                    if response:
+                        st.session_state.voice_messages.put(response)
+                        st.session_state.voice_agent.speak(response)
+            except Exception as e:
+                print(f"Voice command error: {e}")
+                time.sleep(1)  # Prevent tight loop on errors
+    except Exception as e:
+        print(f"Voice agent error: {e}")
+    finally:
+        try:
+            loop.close()
+        except:
+            pass
 
 # WebSocket client
 class WebSocketClient:
@@ -23,14 +70,16 @@ class WebSocketClient:
         self.connected = False
         self.should_stop = False
         self.thread = None
+        self.active_connections = []
 
     async def connect(self):
         while not self.should_stop:
             try:
                 async with websockets.connect(self.uri, ping_interval=None) as ws:
+                    await ws.accept()
+                    self.active_connections.append(ws)
                     self.ws = ws
                     self.connected = True
-                    st.experimental_rerun()  # Rerun to update connection status
                     
                     async for message in ws:
                         if self.should_stop:
@@ -38,7 +87,7 @@ class WebSocketClient:
                         try:
                             data = json.loads(message)
                             ws_messages.put(data)
-                            st.experimental_rerun()  # Rerun to process new message
+                            st.rerun()  # Rerun to process new message
                         except json.JSONDecodeError:
                             print(f"Failed to parse message: {message}")
                             
@@ -169,6 +218,8 @@ def process_ws_messages():
     while not ws_messages.empty():
         message = ws_messages.get()
         if message.get('type') == 'bid_placed':
+            # Update the UI when a new bid is placed
+            st.rerun()  # Rerun to refresh the product list
             st.toast(f"🚀 New bid: ${message['amount']} on {message.get('product_id', 'an item')} by {message.get('user', 'Someone')}")
         ws_messages.task_done()
 
@@ -176,12 +227,38 @@ def process_ws_messages():
 def main():
     st.title("🛒 OmniAuction Live Dashboard")
     
-    # Show connection status
-    ws_status = "🟢 Connected" if hasattr(st.session_state, 'ws_client') and st.session_state.ws_client.connected else "🔴 Disconnected"
-    st.sidebar.markdown(f"### WebSocket Status: {ws_status}")
+    # Show connection status and voice control
+    col1, col2 = st.sidebar.columns([1, 1])
+    with col1:
+        ws_status = "🟢 Connected" if hasattr(st.session_state, 'ws_client') and st.session_state.ws_client.connected else "🔴 Disconnected"
+        st.markdown(f"### WebSocket: {ws_status}")
     
-    # Process WebSocket messages
+    with col2:
+        voice_status = "🔴 Off"
+        if hasattr(st.session_state, 'listening') and st.session_state.listening:
+            voice_status = "🎤 Listening..."
+        
+        if st.button(voice_status, key="voice_toggle"):
+            start_voice_agent()
+            st.rerun()
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Voice Commands")
+    st.sidebar.markdown("""
+    - "List items" - Show all auction items
+    - "Tell me about [item name]" - Get item details
+    - "Bid [amount] on [item name]" - Place a bid
+    - "Stop listening" - Turn off voice control
+    """)
+    
+    # Process WebSocket and voice messages
     process_ws_messages()
+    
+    # Process voice messages
+    if not st.session_state.voice_messages.empty():
+        message = st.session_state.voice_messages.get()
+        st.toast(f"🤖 {message}")
+        st.session_state.voice_messages.task_done()
     
     # Fetch products
     products = fetch_products()
@@ -201,16 +278,16 @@ def main():
             with st.container():
                 st.markdown(f"""
                 <div class="product-card">
-                    <h3>{name}</h3>
-                    <p>{description}</p>
+                    <h3>{product['name']}</h3>
+                    <p>{product.get('description', 'No description available')}</p>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 1.2em; font-weight: bold; color: #4CAF50;">
-                            ${current_highest_bid:,.2f}
+                            ${product.get('current_highest_bid', 0):,.2f}
                         </span>
-                        <span style="color: #666;">{time_remaining}</span>
+                        <span style="color: #666;">{product.get('time_remaining', 'N/A')}</span>
                     </div>
                     <div style="margin-top: 10px; color: #666; font-size: 0.9em;">
-                        {bids_count} bids
+                        {product.get('bids_count', 0)} bids
                     </div>
                 </div>
                 """.format(
@@ -223,9 +300,20 @@ def main():
         
         # Auto-refresh toggle
         st.markdown("---")
-        auto_refresh = st.checkbox("Enable auto-refresh", value=True)
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            auto_refresh = st.checkbox("Enable auto-refresh", value=True, key='auto_refresh')
+        
+        # Initialize refresh state if not exists
+        if 'last_refresh' not in st.session_state:
+            st.session_state.last_refresh = time.time()
+        
+        # Handle auto-refresh
         if auto_refresh:
-            st_autorefresh(interval=5000, key='data_refresh')
+            current_time = time.time()
+            if current_time - st.session_state.last_refresh > 5:  # 5 seconds interval
+                st.session_state.last_refresh = current_time
+                st.rerun()
     
     with col2:
         if 'selected_product' not in st.session_state:
@@ -258,13 +346,26 @@ def main():
             with st.form("bid_form"):
                 user = st.text_input("Your Name", key="bidder_name")
                 min_bid = product['current_highest_bid'] + 1
+                
+                # Display minimum bid amount
+                st.markdown(f"**Minimum Bid:** ${min_bid:,.2f}")
+                
+                # Get bid amount with proper validation
                 amount = st.number_input(
                     "Bid Amount",
                     min_value=min_bid,
                     value=min_bid,
-                    step=1.0
+                    step=1.0,
+                    format="%.2f"
                 )
-                submit = st.form_submit_button("🚀 Place Bid")
+                
+                # Disable the button if bid is too low
+                submit_disabled = amount < min_bid
+                submit = st.form_submit_button(
+                    "🚀 Place Bid",
+                    disabled=submit_disabled,
+                    help=f"Bid must be at least ${min_bid:,.2f}" if submit_disabled else ""
+                )
                 
                 if submit:
                     if not user:
