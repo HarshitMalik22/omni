@@ -17,15 +17,20 @@ app = FastAPI(title="OmniAuction API",
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",  # React dev server
+        "http://localhost:8000",  # Local FastAPI
+        "https://your-production-domain.com"  # Replace with your production domain
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"]
 )
 
 # WebSocket manager
 class ConnectionManager:
-    def __init__(self):
+    def _init_(self):
         self.active_connections: List[WebSocket] = []
         self.agent = AuctionAgent()
 
@@ -143,7 +148,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-@app.get("/products/{product_id}/bids/count", response_model=Dict[str, int])
+@app.get("/api/products/{product_id}/bids/count", response_model=Dict[str, int])
 async def get_bid_count(product_id: str):
     """Get total number of bids for a product"""
     product = manager.agent.get_product_by_id(product_id)
@@ -151,7 +156,7 @@ async def get_bid_count(product_id: str):
         raise HTTPException(status_code=404, detail="Product not found")
     return {"count": len(product.bidding_history)}
 
-@app.get("/products/{product_id}/bids", response_model=List[Dict])
+@app.get("/api/products/{product_id}/bids", response_model=List[Dict])
 async def get_bid_history(product_id: str):
     """Get full bid history for a product"""
     product = manager.agent.get_product_by_id(product_id)
@@ -164,7 +169,7 @@ async def get_bid_history(product_id: str):
         "timestamp": bid.timestamp.isoformat()
     } for bid in product.bidding_history]
 
-@app.post("/products/{product_id}/auto-bid", response_model=Dict)
+@app.post("/api/products/{product_id}/auto-bid", response_model=Dict)
 async def set_auto_bid(product_id: str, auto_bid: AutoBidRequest):
     """Set up auto-bidding for a user on a product"""
     product = manager.agent.get_product_by_id(product_id)
@@ -195,7 +200,29 @@ async def check_ending_auctions():
 
 @app.on_event("startup")
 async def startup_event():
+    # Add some sample products if none exist
+    if not manager.agent.products:
+        sample_products = [
+            Product(
+                id="prod_123",
+                name="Vintage Camera",
+                description="Classic film camera from the 1970s",
+                starting_price=100.0,
+                auction_end_time=datetime.utcnow() + timedelta(days=7)
+            ),
+            Product(
+                id="prod_456",
+                name="Smart Watch",
+                description="Latest model smart watch with health tracking",
+                starting_price=200.0,
+                auction_end_time=datetime.utcnow() + timedelta(days=3)
+            )
+        ]
+        manager.agent.products = sample_products
+        print("Initialized sample products")
+    
+    # Start background task for checking ending auctions
     asyncio.create_task(check_ending_auctions())
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
